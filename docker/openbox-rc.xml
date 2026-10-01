@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixed window layout for the 1440x900 classroom desktop. -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <application title="MuJoCo*">
+      <position force="yes"><x>0</x><y>0</y></position>
+      <size><width>1000</width><height>870</height></size>
+      <focus>no</focus>
+    </application>
+    <application title="Robot remote">
+      <position force="yes"><x>1000</x><y>0</y></position>
+    </application>
+    <application title="party terminal">
+      <position force="yes"><x>1000</x><y>440</y></position>
+      <size><width>440</width><height>430</height></size>
+    </application>
+  </applications>
+</openbox_config>

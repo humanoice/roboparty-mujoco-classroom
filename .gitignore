@@ -1,0 +1,53 @@
+# ---------- ROS 2 / colcon build outputs ----------
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+build/
+install/
+log/
+COLCON_IGNORE.local
+*.bag
+*.db3
+*.mcap
+rosbag2_*/
+
+# ---------- Python ----------
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# ---------- Secrets / local config ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------- Docker / archives ----------
+*.tar
+*.tar.gz
+*.zip
+docker-compose.override.yml
+compose.override.yaml
+
+# ---------- Editors / tools ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/settings.local.json
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini

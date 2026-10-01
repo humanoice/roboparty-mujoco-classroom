@@ -1,0 +1,19 @@
+services:
+  sim:
+    image: roboparty-mujoco-classroom:humble-v1
+    build: .
+    ports:
+      - "127.0.0.1:6080:6080"
+    shm_size: "512m"
+    # inference_node needs real-time thread priority (SCHED_FIFO), like on the robot.
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    environment:
+      ROS_DOMAIN_ID: "43"
+      ROS_LOCALHOST_ONLY: "1"
+      RPO_POLICY: "beyondmimic"
+    volumes:
+      - ./ros2_ws/src:/opt/ros2_ws/src

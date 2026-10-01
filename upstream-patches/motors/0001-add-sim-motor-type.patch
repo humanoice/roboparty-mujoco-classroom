@@ -1,0 +1,21 @@
+diff --git a/src/motor_driver.cpp b/src/motor_driver.cpp
+index a7dd0b2..8b80aaa 100644
+--- a/src/motor_driver.cpp
++++ b/src/motor_driver.cpp
+@@ -7,6 +7,7 @@
+ #include "evo_motor_driver.hpp"
+ #include "lro_motor_driver.hpp"
+ #include "xyn_motor_driver.hpp"
++#include "drivers/sim/sim_motor_driver.hpp"
+ 
+ MotorDriver::MotorDriver() {
+     std::vector<spdlog::sink_ptr> sinks;
+@@ -27,6 +28,8 @@ std::shared_ptr<MotorDriver> MotorDriver::create_motor(uint16_t motor_id, const
+     } else if (motor_type == "XYN") {
+         return std::make_shared<XynMotorDriver>(motor_id, interface_type, interface,
+                                                 static_cast<XYN_Motor_Model>(motor_model), motor_zero_offset);
++    } else if (motor_type == "SIM") {
++        return std::make_shared<SimMotorDriver>(motor_id, interface);
+     } else {
+         throw std::runtime_error("Motor type not supported");
+     }
