@@ -20,6 +20,11 @@ from std_msgs.msg import Float32
 from std_srvs.srv import SetBool, Trigger
 
 from roboparty_sim import shm_layout
+from roboparty_sim.viewer import Viewer
+
+# Largest delay (s) that physics makes up with fast steps. The brain runs every 20 ms.
+MAX_CATCH_UP = 0.01
+MAX_STEPS_PER_LOOP = 12  # MAX_CATCH_UP / 1 ms time step, plus a small margin
 
 # Default standing pose in "URDF order" (from robots/rpo/configs/default.yaml).
 DEFAULT_POSE = np.array([
@@ -43,6 +48,12 @@ class MujocoSim(Node):
         self.declare_parameter('mjcf', os.environ.get('RPO_MJCF', '/opt/rpo_description/mjcf/rpo.xml'))
         self.declare_parameter('shm_path', shm_layout.SHM_PATH)
         self.declare_parameter('viewer', True)
+        # Same robot with simpler meshes, for drawing only (scripts/make_view_model.py).
+        self.declare_parameter('view_mjcf', os.environ.get('RPO_VIEW_MJCF', '/opt/rpo_description/mjcf/rpo_view.xml'))
+        # Drawing uses the CPU (no GPU in Docker), so draw only a few frames each second.
+        self.declare_parameter('viewer_fps', 15.0)
+        self.declare_parameter('viewer_width', 800)
+        self.declare_parameter('viewer_height', 690)
         # In the default pose the feet touch the floor at a base height of 0.747 m.
         self.declare_parameter('stand_height', 0.76)
 
@@ -82,6 +93,9 @@ class MujocoSim(Node):
         self.anchor = np.array([0.0, 0.0, self.stand_height])
         self.push_force = np.zeros(3)
         self.paused = False
+        self.stalls = 0
+        self.reset_request = threading.Event()
+        self.reset_done = threading.Event()
         self.reset_world()
 
         self.create_service(SetBool, '/sim/hold', self.on_hold)
@@ -113,10 +127,14 @@ class MujocoSim(Node):
         return response
 
     def on_reset(self, request, response):
-        with self.lock:
-            self.reset_world()
-        response.success = True
-        response.message = 'Robot is back at the start, on the stand'
+        # Only the physics thread may reset the world. A reset from here, in the
+        # middle of a step burst, sets the clock back to 0 and the loop then
+        # fast-forwards minutes of robot time without the brain: the robot falls.
+        self.reset_done.clear()
+        self.reset_request.set()
+        response.success = self.reset_done.wait(timeout=2.0)
+        response.message = ('Robot is back at the start, on the stand' if response.success
+                            else 'The simulator did not answer')
         return response
 
     def on_push(self, request, response):
@@ -186,33 +204,54 @@ class MujocoSim(Node):
             mujoco.mj_step(self.model, self.data)
             self.write_state()
 
-    def run(self, viewer=None):
-        """Run physics in real time. Call from the main thread."""
+    def run(self, stop):
+        """Run physics in real time until the stop event is set."""
+        # The real world never pauses, so physics gets real-time priority like the
+        # brain (control thread 45, inference thread 35). Without it, a busy computer
+        # can stop physics for 50+ ms and the robot falls. Needs cap_add: SYS_NICE.
+        try:
+            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(40))  # 0 = this thread
+        except PermissionError:
+            self.get_logger().warn('No real-time priority for physics (cap_add: SYS_NICE missing?)')
         wall_start = time.perf_counter()
         sim_start = self.data.time
-        last_sync = 0.0
         rtf_wall, rtf_sim = wall_start, sim_start
-        while rclpy.ok() and (viewer is None or viewer.is_running()):
+        last_loop = wall_start
+        while rclpy.ok() and not stop.is_set():
             self.shm.heartbeat += 1  # "I am alive", also while paused
             now = time.perf_counter()
+            if now - last_loop > 0.02:
+                # Physics did not run. Usually the computer is too busy (other apps, the 3D view).
+                self.stalls += 1
+                self.get_logger().warn(f'Physics paused for {(now - last_loop) * 1000:.0f} ms '
+                                       f'({self.stalls} times so far). The computer is too busy.')
+            last_loop = now
+            if self.reset_request.is_set():
+                with self.lock:
+                    self.reset_world()
+                self.reset_request.clear()
+                self.reset_done.set()
+                # The clock is back at 0: start the real-time bookkeeping again.
+                wall_start, sim_start = now, self.data.time
+                rtf_wall, rtf_sim = now, self.data.time
+                continue
             if self.paused:
                 time.sleep(0.005)
                 wall_start, sim_start = time.perf_counter(), self.data.time
                 continue
             target = sim_start + (now - wall_start)
-            if target - self.data.time > 0.1:
-                # Too slow to keep up. Drop the lost time, do not try to catch up.
+            if target - self.data.time > MAX_CATCH_UP:
+                # Behind real time. Do not catch up in one burst: in a burst the
+                # brain cannot react, and the robot "jumps". Let the world wait.
                 sim_start, wall_start = self.data.time, now
                 target = self.data.time
-            while self.data.time < target:
+            for _ in range(MAX_STEPS_PER_LOOP):  # never more than MAX_CATCH_UP of robot time
+                if self.data.time >= target:
+                    break
                 self.step()
             if now - rtf_wall >= 1.0:
                 self.real_time_factor = (self.data.time - rtf_sim) / (now - rtf_wall)
                 rtf_wall, rtf_sim = now, self.data.time
-            if viewer is not None and now - last_sync > 1.0 / 30.0:
-                with self.lock:
-                    viewer.sync()
-                last_sync = now
             sleep = (self.data.time - sim_start) - (time.perf_counter() - wall_start)
             if sleep > 0:
                 time.sleep(sleep)
@@ -235,30 +274,35 @@ def main():
     sim = MujocoSim()
     spinner = threading.Thread(target=rclpy.spin, args=(sim,), daemon=True)
     spinner.start()
+    stop = threading.Event()
+    physics = threading.Thread(target=sim.run, args=(stop,), daemon=True)
+    physics.start()
     try:
         if sim.get_parameter('viewer').value:
-            import mujoco.viewer
-            with mujoco.viewer.launch_passive(sim.model, sim.data, show_left_ui=False,
-                                              show_right_ui=False,
-                                              key_callback=lambda key: on_key(sim, key)) as viewer:
-                viewer.cam.distance = 3.0
-                viewer.cam.elevation = -15.0
-                viewer.cam.azimuth = 135.0
-                viewer.cam.trackbodyid = sim.base_id
-                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-                sim.run(viewer)
+            # The window must use the main thread. Physics runs in its own thread.
+            view_mjcf = sim.get_parameter('view_mjcf').value
+            view_model = mujoco.MjModel.from_xml_path(view_mjcf) if os.path.isfile(view_mjcf) else None
+            Viewer(sim.model, sim.data, sim.lock, view_model=view_model,
+                   width=sim.get_parameter('viewer_width').value,
+                   height=sim.get_parameter('viewer_height').value,
+                   fps=sim.get_parameter('viewer_fps').value,
+                   track_body=sim.base_id,
+                   key_callback=lambda key: on_key(sim, key)).run(
+                       # rclpy handles Ctrl+C / SIGINT itself, so also check rclpy.ok().
+                       lambda: stop.is_set() or not rclpy.ok())
         else:
-            sim.run()
+            physics.join()
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
+        physics.join(timeout=1.0)
         sim.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def on_key(sim, key):
-    # Keys in the MuJoCo window. Space is already "pause" in the viewer.
+    # Keys in the MuJoCo window (GLFW key codes are ASCII for these keys).
     if key == 32:
         sim.paused = not sim.paused
     elif key == ord('H'):

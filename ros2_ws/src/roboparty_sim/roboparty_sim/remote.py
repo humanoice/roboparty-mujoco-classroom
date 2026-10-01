@@ -36,8 +36,8 @@ class Remote:
         self.result = None
         self.root = tk.Tk()
         self.root.title('Robot remote')
-        self.root.geometry('440x410+1000+0')
-        self.root.configure(padx=8, pady=8)
+        self.root.geometry('480x350+800+0')
+        self.root.configure(padx=4, pady=4)
         self.status = tk.StringVar(value=HELLO)
         self.speed = tk.StringVar(value='')
         self._build()
@@ -47,13 +47,13 @@ class Remote:
 
     def _build(self):
         font = ('DejaVu Sans', 12, 'bold')
-        tk.Label(self.root, text='ROBOT REMOTE', font=('DejaVu Sans', 16, 'bold')).pack()
+        tk.Label(self.root, text='ROBOT REMOTE', font=('DejaVu Sans', 15, 'bold')).pack()
         pad = tk.Frame(self.root)
-        pad.pack(pady=8)
+        pad.pack(pady=3)
         layout = [('Q\nside ←', 'q', 0, 0), ('W\nforward', 'w', 0, 1), ('E\nside →', 'e', 0, 2),
                   ('A\nturn ⟲', 'a', 1, 0), ('S\nback', 's', 1, 1), ('D\nturn ⟳', 'd', 1, 2)]
         for text, key, row, col in layout:
-            button = tk.Button(pad, text=text, width=9, height=2, font=font)
+            button = tk.Button(pad, text=text, width=10, height=2, font=font)
             button.grid(row=row, column=col, padx=3, pady=3)
             button.bind('<ButtonPress-1>', lambda _e, k=key: self.held.add(k))
             button.bind('<ButtonRelease-1>', lambda _e, k=key: self.release(k))
@@ -63,11 +63,11 @@ class Remote:
                    ('Wave', party.cmd_wave), ('Dance', lambda link, _a: party.cmd_motion(link, 'dance0')),
                    ('Dance 2', lambda link, _a: party.cmd_motion(link, 'dance1'))]
         for i, (text, func) in enumerate(buttons):
-            tk.Button(actions, text=text, width=9, font=font,
+            tk.Button(actions, text=text, width=10, font=font,
                       command=lambda f=func: self.run_action(f)).grid(row=i // 3, column=i % 3, padx=3, pady=2)
-        tk.Label(self.root, textvariable=self.speed, font=('DejaVu Sans Mono', 12)).pack(pady=4)
-        tk.Label(self.root, textvariable=self.status, font=('DejaVu Sans', 11), wraplength=380).pack()
-        tk.Label(self.root, text='SPACE = stop', font=('DejaVu Sans', 10)).pack()
+        tk.Label(self.root, textvariable=self.speed, font=('DejaVu Sans Mono', 11)).pack(pady=2)
+        tk.Label(self.root, textvariable=self.status, font=('DejaVu Sans', 10), wraplength=460).pack()
+        tk.Label(self.root, text='SPACE = stop', font=('DejaVu Sans', 9)).pack()
 
     def on_press(self, event):
         key = event.keysym.lower()
@@ -92,6 +92,9 @@ class Remote:
             self.link.send_velocity()  # one zero message when you let go
 
     def tick(self):
+        if not rclpy.ok():  # ROS was shut down (Ctrl+C or supervisor stop)
+            self.root.destroy()
+            return
         if self.held:
             forward = sum(KEYS[k][0] for k in self.held)
             side = sum(KEYS[k][1] for k in self.held)

@@ -43,6 +43,9 @@ Open <http://localhost:6080/vnc.html?autoconnect=true&resize=scale>. You see thr
 
 3. Click **Wave** or **Dance**. Click **Push** to push the robot. If it falls, click **Reset**.
 
+In the MuJoCo window: left drag = rotate the camera, right drag = move, scroll = zoom.
+Keys there: **H** = stand on/off, **P** = push, **Space** = pause.
+
 ## party commands
 
 Type these in the party terminal (or in `docker compose exec sim bash`):
@@ -142,6 +145,7 @@ The simulator does the same steps as the real robot:
 | The robot falls when it walks | Run `docker compose exec sim /opt/ros2_ws/scripts/smoke_test.sh`. If the real-time factor is below 0.9, the computer is too slow. Close other programs. |
 | Keys do nothing | Click the remote window first. Then click **Start**. |
 | `service ... is not available` | Wait 10 s after `docker compose up`. Check `docker compose exec sim tail -50 /tmp/robot.log`. |
+| `Physics paused for ... ms` in `/tmp/robot.log` | The computer is busy. A few short pauses (< 50 ms) are OK. Many long pauses can make the robot fall: close other programs (music and video apps use a lot of CPU). |
 | `Failed to set realtime priority` in `/tmp/robot.log` | `compose.yaml` must have `cap_add: [SYS_NICE]` and `ulimits: rtprio: 99`. |
 | The robot slides or acts strangely | `party reset` |
 
@@ -152,6 +156,10 @@ The simulator does the same steps as the real robot:
 - The build compiles with `-march=native` (upstream setting). Build the image on the computer that runs it.
 - Your edits in `ros2_ws/src` are live in the container (bind mount). Restart with `docker compose restart`.
 - `ROS_DOMAIN_ID` is 43, so this classroom does not mix with the RViz classroom (42) on one computer.
+- Docker has no GPU, so the CPU draws the 3D view. To keep the fan quiet, the desktop is 1280x720 (720p), the
+  MuJoCo window draws 15 frames per second, and shadows are off. To change it, edit the `mujoco_sim`
+  parameters `viewer_fps`, `viewer_width` and `viewer_height` in `launch/sim.launch.py`, or set `viewer:=false`.
+- Close the browser tab when nobody watches. The robot and `party` still work, and VNC uses less CPU.
 
 ## License
 

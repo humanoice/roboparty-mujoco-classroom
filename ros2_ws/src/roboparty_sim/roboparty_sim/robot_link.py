@@ -15,6 +15,7 @@ import time
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
 from rcl_interfaces.msg import Log
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Joy
@@ -146,9 +147,17 @@ class RobotLink(Node):
 
 def start_spinning(node):
     """Spin a node in a background thread so callbacks run while we wait."""
-    executor = rclpy.executors.MultiThreadedExecutor()
+    # One thread is enough here. MultiThreadedExecutor used ~25% CPU while idle.
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
-    thread = threading.Thread(target=executor.spin, daemon=True)
+
+    def spin():
+        try:
+            executor.spin()
+        except ExternalShutdownException:
+            pass  # normal on Ctrl+C or when supervisor stops the program
+
+    thread = threading.Thread(target=spin, daemon=True)
     thread.start()
     return Spinner(executor, thread)
 
@@ -163,6 +172,6 @@ class Spinner:
         """Stop spinning, then clean up. The order matters: a C++ thread that
         is still waiting at exit aborts the program."""
         rclpy.try_shutdown()
-        self.executor.shutdown()
+        self.executor.shutdown(timeout_sec=1.0)
         self.thread.join(timeout=2.0)
         node.destroy_node()

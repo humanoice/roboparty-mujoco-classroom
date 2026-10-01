@@ -27,7 +27,9 @@ def launch_setup(context):
 
     return [
         Node(package='roboparty_sim', executable='mujoco_sim', name='mujoco_sim',
-             parameters=[{'viewer': viewer}], output='screen'),
+             parameters=[{'viewer': viewer}], output='screen',
+             # Mesa draws with the CPU. 2 threads draw 15 fps as fast as 10, with less CPU.
+             additional_env={'LP_NUM_THREADS': '2'}),
         Node(
             package='roboparty_inference', executable='inference_node', name='inference_node',
             parameters=[policy_config, {

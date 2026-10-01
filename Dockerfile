@@ -41,6 +41,12 @@ RUN source /opt/ros/humble/setup.bash && cd /opt/roboparty_deploy \
     && CCACHE_DISABLE=1 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release \
     && rm -rf build log
 
+# Light copy of the robot model for drawing only (635k -> ~63k triangles).
+# Physics keeps the original rpo.xml. See scripts/make_view_model.py.
+COPY scripts/make_view_model.py /opt/tools/make_view_model.py
+RUN pip3 install --no-cache-dir "fast-simplification==0.2.0" \
+    && python3 /opt/tools/make_view_model.py /opt/rpo_description
+
 # Build the classroom workspace on top of it.
 WORKDIR /opt/ros2_ws
 COPY ros2_ws/src ./src
@@ -53,7 +59,7 @@ RUN chmod +x /etc/classroom/*.sh /opt/ros2_ws/scripts/*.sh \
     && printf '\nsource /etc/classroom/entrypoint-rc.sh\n' >> /root/.bashrc
 
 ENV DISPLAY=:1 LIBGL_ALWAYS_SOFTWARE=1 ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
-    RPO_MJCF=/opt/rpo_description/mjcf/rpo.xml
+    RPO_MJCF=/opt/rpo_description/mjcf/rpo.xml RPO_VIEW_MJCF=/opt/rpo_description/mjcf/rpo_view.xml
 EXPOSE 6080
 ENTRYPOINT ["/etc/classroom/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/classroom/supervisord.conf"]
